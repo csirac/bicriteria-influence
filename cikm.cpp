@@ -12,6 +12,8 @@
 
 using namespace std;
 
+
+
 //global random number generator
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -29,6 +31,7 @@ string output_filename;
 vector< myreal > IC_weights;
 vector< myreal> node_probs;
 myint ell;
+myint max_dist;
 influence_oracles my_oracles( 0, 0, 0 );
 
 //function prototypes
@@ -77,6 +80,7 @@ void my_merge2( vector< myint >& sk1, vector< myint >& sk2,
 		myint k );
 
 void read_params(
+		 myint& max_dist,
 		 bool& bdir,
 		 myint& n,
 		 unsigned& nthreads,
@@ -106,6 +110,7 @@ void read_params(
   } else {
     bdir = false;
   }
+  is >> max_dist;
 }
 
 myreal actual_influence(
@@ -135,7 +140,8 @@ myreal actual_influence(
 		ext_act,
 		seed_set,
 		v_reach,
-		igraph_vcount( &G_i ) );
+		//		igraph_vcount( &G_i ) );
+		max_dist );
 		
     activated += v_reach.size();
     //    cout << ext_act.size() + seed_set.size() << ' ' << v_reach.size() << endl;
@@ -162,7 +168,8 @@ int main(int argc, char** argv) {
 	 << " <ext_maxprob>"
 	 << " <output filename>"
       	 << " <nthreads>"
-	 << " <is_directed>\n";
+	 << " <is_directed>"
+	 << " <max_dist>\n";
     return 1;
   }
 
@@ -180,7 +187,8 @@ int main(int argc, char** argv) {
     }
     iss.str( str_params );
 
-    read_params( bdir, 
+    read_params( max_dist,
+		 bdir, 
 		n, nthreads, graph_filename,
 		 beta,
 		 alpha,
@@ -195,7 +203,8 @@ int main(int argc, char** argv) {
       string str_ifile( argv[1] );
       ifile.open( str_ifile.c_str() );
 
-      read_params( bdir, 
+      read_params( max_dist,
+		   bdir, 
 		   n, nthreads, graph_filename,
 		   beta,
 		   alpha,
@@ -650,7 +659,7 @@ void *compute_oracles_online( void* ptr ) {
     igraph_vector_t v_tmp;
     igraph_vector_init( &v_tmp, 0 );
 
-    forwardBFS( &G_i, ext_act, v_reach );
+    forwardBFS( &G_i, ext_act, ext_act, v_reach, max_dist );
 
     offset = v_reach.size();
   

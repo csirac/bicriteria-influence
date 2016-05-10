@@ -1,16 +1,16 @@
-init="0.017"
-step="0.001"
-final="0.03"
+init="0.01"
+step="0.01"
+final="0.15"
 
 beta="0.2"
 ip="0.1"
 ep="0.00001"
-of="run4_alpha_uni"
+of="run5_alpha"
 if="igraph_youtube.txt"
-nthreads="3"
+nthreads="2"
 
 for (( i=0; $i<$(bc<<<"($final - $init)/$step"); i++ )); do
     alpha=$(bc<<<"$init + $step * $i ")
     echo "cikm $if $beta $alpha $ip $ep $of"
-    cikm $if $beta $alpha $ip $ep $of $nthreads
+    cikm $if $beta $alpha $ip $ep $of $nthreads false
 done
