@@ -253,8 +253,8 @@ int main(int argc, char** argv) {
   myint K = 1.0 / (C * alpha);
   myreal delta = 0.5;
   ell = log( 2 / delta ) / (alpha * alpha) / 2;
-  myint k_cohen = ell / 3.0;//25 * (myint)( log ( ((double) n) ) );//ell / 2.0;//25 * ;//ell;//((double) ell);//25 * 
-  ell = ell / 3.0;
+  myint k_cohen = ell;//25 * (myint)( log ( ((double) n) ) );//ell / 2.0;//25 * ;//ell;//((double) ell);//25 * 
+  //ell = ell / 3.0;
 
   myreal epsilon = alpha * n;
   cout << "epsilon = " << epsilon << endl;
