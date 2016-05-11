@@ -251,7 +251,7 @@ int main(int argc, char** argv) {
   T = beta * n;
   myint C = 2;
   myint K = 1.0 / (C * alpha);
-  myreal delta = 0.5;
+  myreal delta = 0.1;
   ell = log( 2 / delta ) / (alpha * alpha) / 2;
   myint k_cohen = ell;//25 * (myint)( log ( ((double) n) ) );//ell / 2.0;//25 * ;//ell;//((double) ell);//25 * 
   //ell = ell / 3.0;
