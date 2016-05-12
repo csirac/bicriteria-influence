@@ -31,6 +31,10 @@ bool mycomp (const npair& n1, const npair& n2 ) {
   return n1.nrank < n2.nrank;
 }
 
+bool mycomp2 (const npair& n1, const npair& n2 ) {
+  return n1.nrank > n2.nrank;
+}
+
 class influence_oracles {
 public:
   myint ell;
@@ -94,6 +98,98 @@ public:
 
   }
 
+  myreal better_estimate_cohen( vector< myint >& s, double& t1, double& t2 ) {
+    //assumes reachability sets are disjoint
+    double estimate = 0.0;
+    npair tmp;
+    vector< npair > rank_values;
+    vector< npair > sketches;
+
+    clock_t start, finish;
+    start = clock();
+    for (unsigned i = 0; i < s.size(); ++i) {
+      tmp.node = s[i];
+      if (uniform_global_sketches[ s[i] ].size() == k)
+	tmp.nrank = uniform_global_sketches[ s[i] ].back();
+      else
+	tmp.nrank = 1.0;
+
+      sketches.push_back( tmp );
+
+      //merge the sketches together,
+      //keeping track of which node
+      //each rank came from
+      vector< npair > track_sketch;
+      track_sketch.reserve( k );
+      for (unsigned j = 0; j < uniform_global_sketches[ s[i] ].size(); ++j ) {
+	npair tmp;
+	tmp.node = s[i];
+	tmp.nrank = uniform_global_sketches[ s[i] ][ j ];
+	track_sketch.push_back(tmp );
+      }
+      if (track_sketch.size() == k)
+	track_sketch.pop_back(); //discard the rank of the sketch
+
+      vector< npair > result;
+      npair tmp2;
+      result.assign( rank_values.size() + track_sketch.size(), tmp2 );
+      merge( rank_values.begin(), rank_values.end(),
+	     track_sketch.begin(), track_sketch.end(),
+	     result.begin(), mycomp );
+
+      rank_values.swap( result );
+		       
+    }
+
+    finish = clock();
+    t1 = ( (double )finish - start) / CLOCKS_PER_SEC;
+
+    start = clock();
+    std::sort( sketches.begin(), sketches.end(), mycomp2 );
+
+    //for each distinct rank_value, find 
+    //the largest sketch rank to which it belongs
+    //to that sketch
+    vector< npair >::iterator itrv = rank_values.begin();
+    vector< npair >::iterator itrvend = rank_values.end();
+    vector< myint > v_nodes;
+    while (itrv != itrvend) {
+      v_nodes.clear();
+      //      cout << i << ' '  << rank_values[i] << endl;
+      //if a rank value is not unique, it is equal
+      //to the one before it, the rank_values are sorted
+      v_nodes.push_back( itrv -> node );
+      while ( ( (itrv + 1) != itrvend) && ((itrv + 1)->nrank == itrv->nrank ) ) {
+	v_nodes.push_back( (itrv + 1) -> node );
+	++itrv;
+      }
+      
+      //find which node corresponds to the max. rank
+      bool bfound = false;
+
+      for (unsigned j = 0; j < sketches.size(); ++j) {
+	myint snode = sketches[j].node;
+	for (unsigned k = 0; k < v_nodes.size(); ++k) {
+	  if (v_nodes[k] == snode) {
+	    //add to estimate
+	    estimate += 1.0 / sketches[j].nrank;
+	    bfound = true;
+	    break;
+	  }
+	}
+      
+	if (bfound) {
+	  break;
+	}
+      }
+      ++itrv;
+    }
+
+    finish = clock();
+    t2 = ( (double) finish - start) / CLOCKS_PER_SEC;
+      return estimate / ell;
+  }
+
   myreal estimate_reachability( myint vertex ) {
     myreal uniform_rank;
     myreal estimate;
@@ -127,8 +223,7 @@ public:
     return ((myreal) tot_reach) / ell;
   }
 
-  void merge_sketches(vector< myint >& sketch_1, vector< myint >& sketch_2, 
-		      vector< myint >& result ) {}
+
   //This version of the constructor does not
   //store any of the instances.
   //To compute the oracles, the online
@@ -223,7 +318,7 @@ public:
 			G_i,
 			&res,
 			vs,
-			4, //hop=4
+			10, //4, //hop=4
 			IGRAPH_IN );
 
     

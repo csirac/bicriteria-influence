@@ -20,6 +20,7 @@ std::mt19937 gen(rd());
 
 //global thread variables
 
+unsigned nthreads;
 igraph_t base_graph;
 string graph_filename;
 myint n;
@@ -100,22 +101,26 @@ void *compute_marginal_gain( void* ptr ) {
   cmg_args* my_args = (cmg_args*) ptr;
   myint start = my_args -> spos;
   myint finish = my_args -> fpos;
-  
+  double t1, t2, t3, t4;
   vector <myint>& cmg_seed = my_args -> seeds;
   double curr_tau = my_oracles.better_estimate_cohen( cmg_seed, t1, t2 );
 
   cmg_seed.push_back( 0 );
   unsigned ss = cmg_seed.size();
-
+  myint next_node = 0;
+  double max_marg = 0.0;
   for (myint u = start; u < finish; ++u) {
     cmg_seed[ ss - 1 ] = u;
-    myreal tmp_marg = oracles.better_estimate_cohen( cmg_seed, t3, t4 ) - curr_tau;
+    double tmp_marg = my_oracles.better_estimate_cohen( cmg_seed, t3, t4 ) - curr_tau;
 
     if (tmp_marg > max_marg) {
       max_marg = tmp_marg;
       next_node = u;
     }
   }
+
+  my_args -> nnode = next_node;
+  my_args -> mmarge = max_marg;
 
 }
 
@@ -125,7 +130,7 @@ void read_params(
 		 myint& max_dist,
 		 bool& bdir,
 		 myint& n,
-		 unsigned& nthreads,
+		 unsigned& rp_nthreads,
 		 string& graph_filename,
 		 myreal& beta,
 		 myreal& alpha,
@@ -148,7 +153,7 @@ void read_params(
   is >> int_maxprob;
   is >> ext_maxprob;
   is >> output_filename;
-  is >> nthreads;
+  is >> rp_nthreads;
   string sdir;
   is >> sdir;
   if (sdir == "true") {
@@ -224,7 +229,6 @@ int main(int argc, char** argv) {
   ifstream ifile;
   istringstream iss;
   myint N;
-  unsigned nthreads;
   bool bdir;
 
   if (argc > 2) {
@@ -238,7 +242,7 @@ int main(int argc, char** argv) {
     read_params( N, //number of trials 
 		max_dist,
 		 bdir, 
-		n, nthreads, graph_filename,
+		 n, nthreads, graph_filename,
 		 beta,
 		 alpha,
 		 int_maxprob,
@@ -313,10 +317,14 @@ int main(int argc, char** argv) {
   cout << "n = " << n << endl;
   cout << "m = " << igraph_ecount( &base_graph ) << endl;
   myint T;
-  T = beta * n;
+  if (beta > 1.0) {
+    T = beta;
+  } else {
+    T = beta * n;
+  }
   myint C = 2;
   myint K = 1.0 / (C * alpha);
-  double delta = 0.01;
+  double delta = 0.03;
   ell = log( 2 / delta ) / (alpha * alpha) / 2;
   //  ell = 0.7 * n;
   myint k_cohen = ell / 2;// (myint)( log ( ((double) n) ) );//ell / 2.0;//;//ell / 2.0;//25 * ;//ell;//((double) ell);//25 * 
@@ -553,29 +561,59 @@ void bicriteria_better_est( influence_oracles& oracles,
   myint next_node = 0;
   myreal curr_tau = 0.0;
   myint size_of_seeds = 0;
+  double t1, t2;
   while (est_infl < T ) {
 
     //select the node with the max. marginal gain
     //for each u
-
-    max_marg = 0.0;
-    //    curr_tau = oracles.estimate_reachability_sketch( sketch );
-    double t1, t2, t3, t4;
     curr_tau = oracles.better_estimate_cohen( seeds, t1, t2 );
-    seeds.push_back( 0 );
-    ++size_of_seeds;
-    for (myint u = 0; u < n; ++u) {
-      seeds[ size_of_seeds - 1 ] = u;
-      myreal tmp_marg = oracles.better_estimate_cohen( seeds, t3, t4 ) - curr_tau;
-      t1 += t3;
-      t2 += t4;
-      if (tmp_marg > max_marg) {
-	max_marg = tmp_marg;
-	next_node = u;
+
+    pthread_t* mythreads = new pthread_t [ nthreads ];
+    vector< cmg_args* > v_thread_results;
+    cmg_args* thread_args;
+    for (unsigned v = 0; v < nthreads; ++v) {
+      thread_args = new cmg_args;
+      double dfactor = ( (double) n ) / nthreads;
+      myint spos = dfactor * v;
+      myint fpos = dfactor * v + dfactor;
+
+      if (v == nthreads - 1) {
+	fpos = n;
       }
+
+      thread_args -> spos = spos;
+      thread_args -> fpos = fpos;
+      (thread_args -> seeds).assign( seeds.begin(), seeds.end() );
+
+      void * tptr = (void *) thread_args;
+      pthread_create( &( mythreads[ v ] ), NULL, compute_marginal_gain, tptr );
+      
+      v_thread_results.push_back( thread_args );
     }
 
-    cout << t1 << ' ' << t2 << endl;
+    //wait for the threads to finish
+    for (unsigned i = 0; i < nthreads; ++i) {
+      pthread_join( mythreads[i] , NULL );
+    
+    }
+
+    delete [] mythreads;
+    
+    //find the max. marginal gain returned by the threads
+    max_marg = 0.0;
+    next_node = 0;
+    for (unsigned i = 0; i < nthreads; ++i) {
+      thread_args = v_thread_results[i];
+      double tmp_marg = thread_args -> mmarge;
+      if (tmp_marg > max_marg) {
+	max_marg = tmp_marg;
+	next_node = thread_args -> nnode;
+      }
+
+      delete (v_thread_results[i]);
+    }
+    ++size_of_seeds;
+    seeds.push_back( 0 );
     seeds[ size_of_seeds - 1 ] = next_node;
 
     est_infl = offset + curr_tau + max_marg;// + seeds.size();
