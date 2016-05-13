@@ -124,6 +124,28 @@ void *compute_marginal_gain( void* ptr ) {
 
 }
 
+// void remove_isolated_vertices( igraph_t* Graph ) {
+//   igraph_vector_t v_deg0;
+  
+//   myint n_g = igraph_vcount( Graph );
+//   igraph_vector_t res;
+//   igraph_vector_init( &res, 0 );
+//   for (myint i = 0; i < n_g; ++i) {
+//     igraph_degree( Graph, &res, igraph_vss_all(), IGRAPH_ALL, IGRAPH_NO_LOOPS );
+//     if (igraph_vector_e( &res, 0 ) == 0)
+//       igraph_delete_vertices( Graph, igraph_vss_1( i ) );
+//   }
+//   cout << "here" << endl;
+
+//   // igraph_vs_t vs;
+//   // igraph_vs_vector( &vs, &v_deg0 );
+//   // igraph_delete_vertices( Graph, vs );
+
+//   // igraph_vs_destroy( &vs );
+//   // igraph_vector_destroy( &res );
+//   // igraph_vector_destroy( &v_deg0 );
+// }
+
 
 void read_params(
 		 myint& N,
@@ -188,14 +210,14 @@ myreal actual_influence(
     sample_external_influence( base_graph, NP, ext_act );
     
     vector< myint > v_reach;
-    forwardBFS( &G_i,
+    activated += forwardBFS( &G_i,
 		ext_act,
 		seed_set,
 		v_reach,
 		//		igraph_vcount( &G_i ) );
 		max_dist );
 		
-    activated += v_reach.size();
+    //    activated += v_reach.size();
     //    cout << ext_act.size() + seed_set.size() << ' ' << v_reach.size() << endl;
 
     igraph_destroy( &G_i );
@@ -298,6 +320,8 @@ int main(int argc, char** argv) {
       //if the graph is undirected
       igraph_read_graph_edgelist( &base_graph, fp, 0, bdir ); 
       fclose( fp );
+
+      //      remove_isolated_vertices( &base_graph );
     }
   }
 
@@ -322,9 +346,12 @@ int main(int argc, char** argv) {
   } else {
     T = beta * n;
   }
+  if (max_dist == 0) 
+    max_dist = igraph_vcount( &base_graph );
+
   myint C = 2;
   myint K = 1.0 / (C * alpha);
-  double delta = 0.03;
+  double delta = 0.01;
   ell = log( 2 / delta ) / (alpha * alpha) / 2;
   //  ell = 0.7 * n;
   myint k_cohen = ell / 2;// (myint)( log ( ((double) n) ) );//ell / 2.0;//;//ell / 2.0;//25 * ;//ell;//((double) ell);//25 * 
@@ -387,6 +414,7 @@ int main(int argc, char** argv) {
     my_oracles.n = n;
     my_oracles.ell = ell;
     my_oracles.k = k_cohen;
+    my_oracles.or_max_dist = max_dist;
     my_oracles.compute_uniform_oracles_online_init();
 
     myint ell_tmp = ((double) ell) / nthreads;
@@ -415,8 +443,10 @@ int main(int argc, char** argv) {
 
     myreal offset = my_oracles.offset / my_oracles.ell;
     avg_offset += offset;
-    bicriteria_better_est( my_oracles, n, T, offset,
-		seed_set, alpha, false );
+       bicriteria_better_est( my_oracles, n, T, offset,
+       		seed_set, alpha, false );
+    // bicriteria( my_oracles, n, T, offset,
+    // 		seed_set, alpha, false );
 
     t_finish = clock();
     myreal t_bicriteria = myreal (t_finish - t_start) / CLOCKS_PER_SEC;
@@ -1151,10 +1181,12 @@ myint forwardBFS( igraph_t* G_i,
   //  igraph_vector_init( &v_edges_to_remove, 0);
 
   for (myint i = 0; i < vseeds.size(); ++i) {
-    dist[ vseeds[i] ] = 0;
-    Q.push( vseeds[i] );
-    //    igraph_vector_push_back( &v_neighborhood, vseeds[i] );
-    v_neighborhood.push_back( vseeds[i] );
+    if (dist[ vseeds[i] ] != 0) {
+      dist[ vseeds[i] ] = 0;
+      Q.push( vseeds[i] );
+      //    igraph_vector_push_back( &v_neighborhood, vseeds[i] );
+      v_neighborhood.push_back( vseeds[i] );
+    }
   }
 
   for (myint i = 0; i < vseeds2.size(); ++i) {
@@ -1175,30 +1207,26 @@ myint forwardBFS( igraph_t* G_i,
     igraph_neighbors( G_i, &neis, current, IGRAPH_OUT );
     for (myint i = 0; i < igraph_vector_size( &neis ); ++i) {
       myint aneigh = VECTOR( neis )[i];
-      if (dist[ aneigh ] == -1 ) { //if aneigh hasn't been discovered yet
-	dist[ aneigh ] = dist[ current ] + 1;
-	Q.push( aneigh );
-	//	igraph_vector_push_back( &v_neighborhood, aneigh );
-	v_neighborhood.push_back( aneigh );
 
-	//flag this edge for removal from the graph
-	//	myint eid;
-	//	igraph_get_eid( G_i, &eid, current, 
-      }
+      if ( (dist[ aneigh ] == -1) || (dist[ aneigh ] > dist[ current ] + 1) ) { //if aneigh hasn't been discovered yet
+
+	if ((dist[ aneigh ] == -1) && ((dist[ current ] + 1) < max_distance))
+	  Q.push( aneigh );
+
+	if ((dist[ current ] + 1) <= max_distance ) {
+	  if ((dist[ aneigh ] > max_distance) || (dist[ aneigh ] == -1))
+	    v_neighborhood.push_back( aneigh );
+
+	}
+	
+	dist[ aneigh ] = dist[ current ] + 1;
+      } 
     }
 
     igraph_vector_destroy( &neis );
   } //BFS finished
 
-  myint count = 0;
-  for (myint i = 0; i < n; ++i) {
-    if (dist[i] != -1) {
-      if (dist[i] <= max_distance) {
-	//i is reachable from vertex in G_i
-	++count;
-      }
-    }
-  }
+  myint count = v_neighborhood.size();
 
   return count;
 

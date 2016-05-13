@@ -73,6 +73,8 @@ void my_merge( vector< myreal >& sk1, vector< myreal >& sk2,
 
 void* compute_oracles_online( void * );
 
+
+
 void print_sketch( vector< myreal >& sk1 );
 
 void bicriteria( influence_oracles& oracles, 

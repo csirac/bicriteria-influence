@@ -9,7 +9,7 @@
 
 using namespace std;
 typedef igraph_integer_t myint;
-typedef float myreal;
+typedef double myreal;
 typedef unordered_set< myint >  uset;
 
 std::random_device rd_or;
@@ -40,6 +40,7 @@ public:
   myint ell;
   myint k;
   myint n;
+  myint or_max_dist;
 
   vector< igraph_t* > v_instances;
   vector< vector< myint > > global_sketches;
@@ -318,7 +319,7 @@ public:
 			G_i,
 			&res,
 			vs,
-			10, //4, //hop=4
+			or_max_dist, //4, //hop=4
 			IGRAPH_IN );
 
     
