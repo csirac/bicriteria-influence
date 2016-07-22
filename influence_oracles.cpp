@@ -6,6 +6,9 @@
 #include <queue>
 #include <iostream>
 #include <pthread.h>
+#include <bitset>
+
+#define MAX_N 10000000//for bitset
 
 using namespace std;
 typedef igraph_integer_t myint;
@@ -58,7 +61,8 @@ public:
 
   void compute_uniform_oracles_online_init();
   void compute_uniform_oracles_online_step( igraph_t* H_i,
-					    myint i, myreal offset );
+					    myint i, myreal offset,
+					    bitset< MAX_N >& bs_ext);
 
   myreal estimate_reachability_sketch( vector< myint >& asketch ) {
     myreal uniform_rank;
@@ -643,7 +647,8 @@ void influence_oracles::
 compute_uniform_oracles_online_step(
 				    igraph_t* H_i,
 				    myint i,
-				    myreal offset_in
+				    myreal offset_in,
+				    bitset< MAX_N >& bs_ext
 				    ) {
   vector < vector< myreal > > local_sketches;
   vector < myreal > empty_sketch;
@@ -669,7 +674,8 @@ compute_uniform_oracles_online_step(
   
   for (myint j = 0; j < n; ++j) {
     myint vertex = ranks_i[j].node;
-    igraph_vector_push_back( &vRankOrder, vertex );
+    if (!(bs_ext.test( vertex )))
+      igraph_vector_push_back( &vRankOrder, vertex );
   }
 
   // Run reverse BFS in instance i from 'vertex', 
