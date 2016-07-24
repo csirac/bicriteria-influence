@@ -7,6 +7,7 @@
 #include <iostream>
 #include <pthread.h>
 #include <bitset>
+#include <list>
 
 #define MAX_N 10000000//for bitset
 
@@ -30,6 +31,255 @@ struct npair {
   myreal nrank;
 };
 
+struct sk_type {
+  myint node;
+  myreal rank;
+  
+};
+
+struct est_node {
+  myint node;
+  myreal sk_rank;
+  //vector< npair > sketch; 
+  //the rank values assigned to
+  //this node
+  list < myreal > which_assigned; 
+};
+
+class C2_est {
+public:
+  vector< vector< myreal > >& ugs; //the uniform sketches
+
+  //maintains sorted order by rank value
+  //largest to smallest
+  list < est_node > mem; 
+  myreal estimate;
+  myint& k;
+
+  void add_node( myint id ) {
+    //get sketch of this node, and its rank
+    vector< myreal >& id_sketch = ugs[ id ];
+    myreal id_rank;
+    if (id_sketch.size() == k) {
+      id_rank = id_sketch.back();
+      id_sketch.pop_back(); //don't want to consider the sketch rank
+      //need to add this back at the end
+    } else {
+      id_rank = 1.0;
+    }
+    
+    est_node en_id;
+    en_id.node = id;
+    en_id.sk_rank = id_rank;
+
+    list< myreal >& id_which_assigned = en_id.which_assigned;
+
+    //find position of id in mem
+    list< est_node >::iterator it_mem = mem.begin();
+    vector< bool > b_assign( id_sketch.size(), false );
+    while ( it_mem -> sk_rank > id_rank ) {
+      //need to check the sketches of nodes of larger rank
+      //to determine if they contain elements in id's sketch
+      bool bfound = false;
+      list < myreal >& wa_ref = it_mem -> which_assigned ; 
+      list < myreal >::iterator it_wa; 
+      for ( unsigned i = 0; i < id_sketch.size(); ++i ) {
+	it_wa = wa_ref.begin();
+	while (it_wa != wa_ref.end() ) {
+	  if ( id_sketch[i] == (*it_wa) ) {
+	    b_assign[i] = true;
+	    break;
+	  }
+	  ++it_wa;
+	}
+      }
+
+      ++it_mem;
+    }
+    //    cout << "here1" << endl;
+    //id_rank >= it_mem -> sk_rank
+    //remember the position to insert
+    list< est_node >::iterator it_pos = it_mem;
+
+    //next, we need to see if lower rank assignments
+    //should be re-assigned to id
+    //if so, estimate will change
+    vector< myreal >::iterator it_sk;
+    vector< bool >::iterator it_bsk = b_assign.begin();
+    bool bfnd;
+    list< myreal >::iterator it_wa;
+    while( it_mem != mem.end() ) {
+      it_wa = (it_mem -> which_assigned).begin();
+      while (it_wa != (it_mem -> which_assigned ).end()) {
+	bfnd = false;
+	it_sk = id_sketch.begin();
+	it_bsk = b_assign.begin();
+	while (it_sk != id_sketch.end()) {
+	  if ( (*it_sk)  == ( *it_wa ) ) {
+	    bfnd = true; //it_wa was found
+	    (*it_bsk) = true; //taken care of this member of sketch
+	    //add to id -> which_assigned
+	    id_which_assigned.push_back( *it_wa );
+	    //delete from it_mem -> which_assigned,
+	    it_wa = (it_mem -> which_assigned).erase( it_wa );
+	    //update estimate accordingly
+	    //need to subtract off 1 / it_mem -> sk_rank
+	    estimate -= 1.0 / it_mem -> sk_rank;
+	    estimate += 1.0 / id_rank;
+	  }
+	  ++it_sk;
+	  ++it_bsk;
+	}
+	if (!bfnd)
+	  ++it_wa;
+      }
+
+      ++it_mem;
+    }
+
+    //at this point, any unassigned members of id's
+    //sketch should be assigned to id itself
+    //this will change the estimate
+    it_sk = id_sketch.begin();
+    it_bsk = b_assign.begin();
+
+    while ( it_sk != id_sketch.end() ) {
+      if ( !(*it_bsk) ) {
+	id_which_assigned.push_back( *it_sk );
+	estimate += 1.0 / id_rank;
+      }
+
+      ++it_sk;
+      ++it_bsk;
+    }
+
+    id_sketch.push_back( id_rank );
+    
+
+    en_id.node = id;
+    //insert en_id to mem
+    mem.insert( it_pos, en_id );
+  }
+
+  //dry does not actually add
+  //the node to the set
+  //just simulates it
+  myreal add_node_dry( myint id ) {
+    myreal dry_estimate = estimate;
+
+    //get sketch of this node, and its rank
+    vector< myreal >& id_sketch = ugs[ id ];
+    myreal id_rank;
+    if (id_sketch.size() == k) {
+      id_rank = id_sketch.back();
+      id_sketch.pop_back(); //don't want to consider the sketch rank
+      //need to add this back at the end
+    } else {
+      id_rank = 1.0;
+    }
+    
+    est_node en_id;
+    en_id.node = id;
+    en_id.sk_rank = id_rank;
+
+    list< myreal >& id_which_assigned = en_id.which_assigned;
+
+    //find position of id in mem
+    list< est_node >::iterator it_mem = mem.begin();
+    vector< bool > b_assign( id_sketch.size(), false );
+    while ( it_mem -> sk_rank > id_rank ) {
+      //need to check the sketches of nodes of larger rank
+      //to determine if they contain elements in id's sketch
+      bool bfound = false;
+      list < myreal >& wa_ref = it_mem -> which_assigned ; 
+      list < myreal >::iterator it_wa; 
+      for ( unsigned i = 0; i < id_sketch.size(); ++i ) {
+	it_wa = wa_ref.begin();
+	while (it_wa != wa_ref.end() ) {
+	  if ( id_sketch[i] == (*it_wa) ) {
+	    b_assign[i] = true;
+	    break;
+	  }
+	  ++it_wa;
+	}
+      }
+
+      ++it_mem;
+    }
+    //    cout << "here1" << endl;
+    //id_rank >= it_mem -> sk_rank
+    //remember the position to insert
+    list< est_node >::iterator it_pos = it_mem;
+
+    //next, we need to see if lower rank assignments
+    //should be re-assigned to id
+    //if so, estimate will change
+    vector< myreal >::iterator it_sk;
+    vector< bool >::iterator it_bsk = b_assign.begin();
+    bool bfnd;
+    list< myreal >::iterator it_wa;
+    while( it_mem != mem.end() ) {
+      it_wa = (it_mem -> which_assigned).begin();
+      while (it_wa != (it_mem -> which_assigned ).end()) {
+	bfnd = false;
+	it_sk = id_sketch.begin();
+	it_bsk = b_assign.begin();
+	while (it_sk != id_sketch.end()) {
+	  if ( (*it_sk)  == ( *it_wa ) ) {
+	    bfnd = true; //it_wa was found
+	    (*it_bsk) = true; //taken care of this member of sketch
+	    //add to id -> which_assigned
+	    id_which_assigned.push_back( *it_wa );
+	    //don't delete from it_mem -> which_assigned, this
+	    //is dry run
+	    //it_wa = (it_mem -> which_assigned).erase( it_wa );
+	    ++it_wa;
+	    //update estimate accordingly
+	    //need to subtract off 1 / it_mem -> sk_rank
+	    dry_estimate -= 1.0 / it_mem -> sk_rank;
+	    dry_estimate += 1.0 / id_rank;
+	  }
+	  ++it_sk;
+	  ++it_bsk;
+	}
+	if (!bfnd)
+	  ++it_wa;
+      }
+
+      ++it_mem;
+    }
+
+    //at this point, any unassigned members of id's
+    //sketch should be assigned to id itself
+    //this will change the estimate
+    it_sk = id_sketch.begin();
+    it_bsk = b_assign.begin();
+
+    while ( it_sk != id_sketch.end() ) {
+      if ( !(*it_bsk) ) {
+	id_which_assigned.push_back( *it_sk );
+	dry_estimate += 1.0 / id_rank;
+      }
+
+      ++it_sk;
+      ++it_bsk;
+    }
+
+    id_sketch.push_back( id_rank );
+    
+
+    en_id.node = id;
+    //do not insert en_id to mem, this is dry run
+    //mem.insert( it_pos, en_id );
+    return dry_estimate;
+  }
+
+  C2_est( vector< vector < double > >& in_ugs,
+	  myint& in_k ) : ugs( in_ugs ), k( in_k ) {
+    estimate = 0.0;
+  }
+};
+
 bool mycomp (const npair& n1, const npair& n2 ) {
   return n1.nrank < n2.nrank;
 }
@@ -44,6 +294,8 @@ public:
   myint k;
   myint n;
   myint or_max_dist;
+
+  C2_est imp_est;
 
   vector< igraph_t* > v_instances;
   vector< vector< myint > > global_sketches;
@@ -102,6 +354,8 @@ public:
     return estimate / ell;
 
   }
+
+  
 
   myreal better_estimate_cohen( vector< myint >& s, double& t1, double& t2 ) {
     //assumes reachability sets are disjoint
@@ -238,7 +492,8 @@ public:
                      myint in_n ) :
     ell( in_ell ), 
     k( in_k ),
-    n( in_n )
+    n( in_n ), 
+    imp_est( uniform_global_sketches, k )
   { }
 
   influence_oracles( vector< igraph_t* >& in_instances,
@@ -248,7 +503,8 @@ public:
     v_instances( in_instances ), 
     ell( in_ell ), 
     k( in_k ),
-    n( in_n )
+    n( in_n ), 
+    imp_est( uniform_global_sketches, k )
   { }
 
   influence_oracles( vector< igraph_t >& in_instances,
@@ -257,7 +513,8 @@ public:
                      myint in_n) :
     ell( in_ell ), 
     k( in_k ),
-    n( in_n )
+    n( in_n ), 
+    imp_est( uniform_global_sketches, k )
   { 
     igraph_t* nullpoint;
     v_instances.assign( ell, nullpoint);
