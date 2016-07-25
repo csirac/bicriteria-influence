@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <queue>
 #include <iostream>
+#include <sstream>
 #include <pthread.h>
 #include <bitset>
 #include <list>
@@ -295,6 +296,9 @@ public:
   myint n;
   myint or_max_dist;
 
+  myreal t_oracles;
+  myreal t_oracles_wall;
+
   C2_est imp_est;
 
   vector< igraph_t* > v_instances;
@@ -315,6 +319,42 @@ public:
   void compute_uniform_oracles_online_step( igraph_t* H_i,
 					    myint i, myreal offset,
 					    bitset< MAX_N >& bs_ext);
+
+  void write_oracles( ostream& os ) {
+    os << k <<  ' ' << ell << ' ' << n << ' ' << t_oracles << ' ' << t_oracles_wall << ' ' << or_max_dist << ' ' << offset << endl;
+    for (myint i = 0; i < n; ++i) {
+      for (unsigned j = 0; j < uniform_global_sketches[ i ].size(); ++j ) {
+	os << uniform_global_sketches[ i ][ j ] << ' ';
+
+      }
+      os << endl;
+    }
+
+  }
+
+  void read_oracles( istream& is ) {
+    string sline;
+    getline( is, sline );
+    istringstream iss;
+    iss.clear();
+    iss.str( sline );
+    iss >> k >> ell >> n >> t_oracles >> t_oracles_wall >> or_max_dist >> offset;
+
+    myint i = 0;
+    vector< myreal > empty_sketch;
+    uniform_global_sketches.assign( n, empty_sketch );
+    while( getline( is, sline ) ) {
+      iss.clear();
+      iss.str( sline );
+      myreal tmp;
+      while (iss >> tmp) {
+	uniform_global_sketches[ i ].push_back( tmp );
+      }
+      ++i;
+    }
+
+    imp_est.mem.clear();
+  }
 
   myreal estimate_reachability_sketch( vector< myint >& asketch ) {
     myreal uniform_rank;

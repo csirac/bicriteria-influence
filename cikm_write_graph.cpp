@@ -2,7 +2,6 @@
 #include "influence_oracles.cpp"
 #include <vector>
 #include <queue>
-#include <chrono>
 #include <iostream>
 #include <random>
 #include <fstream>
@@ -15,7 +14,6 @@
 #define HEAD_INFO
 #include "sfmt/SFMT.h"
 #include "head.h"
-#include <thread>
 class Argument{
 public:
     int k;
@@ -52,17 +50,6 @@ myint max_dist;
 influence_oracles my_oracles( 0, 0, 0 );
 
 //function prototypes
-inline bool file_exists (const std::string& name) {
-  if (FILE *file = fopen(name.c_str(), "r")) {
-    fclose(file);
-    return true;
-  } else {
-    return false;
-  }   
-}
-
-void ind_sample_thread( vector< myint >& ss, double& myest, unsigned L );
-
 void bicriteria_be2( influence_oracles& oracles, 
 		     myint n, 
 		     myint T,
@@ -170,30 +157,77 @@ void weight_vector_from_matrix(
   
 }
 
-void read_weighted_graph( igraph_t& G, string ifname,
+void read_weighted_graph( igraph_t& G, istream& ifile,
 			  vector< vector< double > >& wA,
 			  vector< double >& v_ew,
-			  myint& n, bool is_directed ) {
+			  myint& n ) {
   cout << "Reading input file..." << endl;
-
   //vertex ids are from 0 to (n-1)
-  FILE* fp;
-  fp = fopen( ifname.c_str(), "r" );
-  igraph_read_graph_edgelist( &G, fp, 0, is_directed ); 
-  fclose( fp );
+  bool is_directed; //, is_weighted;
 
-  ifname += "_w";
-  ifstream ifw( ifname.c_str() );
-  myint m = igraph_ecount( &G );
-  v_ew.assign( m, 0.0 );
-  for (myint i = 0; i < m; ++i) {
-    ifw >> v_ew[i];
+  istringstream iss;
+  string sline;
+
+  myint nparent, nchild;
+  double weight;
+  igraph_vector_t edges_to_add;
+  igraph_vector_init( &edges_to_add, 0 );
+
+  vector< double > zero_weight;
+
+  unsigned n_lines = 0;
+
+  //create graph
+  igraph_empty( &G, n, false );  //for now, undirected
+
+  while( getline( ifile, sline ) ) {
+    iss.clear();
+    iss.str( sline );
+
+    //skip comments
+    if (sline[0] != '#') {
+      if (n_lines == 0) {
+	iss >> n;
+
+	iss >> is_directed;
+
+	zero_weight.assign( n, 0.0 );
+	wA.assign( n, zero_weight );
+
+      } else {
+	iss >> nparent;
+	iss >> nchild; 
+	iss >> weight;
+	wA[ nparent ][ nchild ] = weight;
+	wA[ nchild ][ nparent ] = weight;
+
+	igraph_vector_push_back( &edges_to_add, nparent );
+	igraph_vector_push_back( &edges_to_add, nchild );
+      }
+
+      ++n_lines;
+
+      if (n_lines > 15000) {
+	n_lines = 1;
+	igraph_add_edges( &G, &edges_to_add, 0 );
+	igraph_vector_destroy( &edges_to_add );
+	igraph_vector_init( &edges_to_add, 0 );
+      }
+    }
+
   }
 
   cout << "Finished reading file..." << endl;
+  
+  igraph_add_edges( &G, &edges_to_add, 0 );
+  igraph_vector_destroy( &edges_to_add );
+
+  igraph_simplify( &G, true, true, 0 ); //make sure we don't have a multigraph
+
+  weight_vector_from_matrix( G, v_ew, wA );
 
   cout << "Graph constructed." << endl;
- 
+  
 }
 
 void *compute_marginal_gain( void* ptr ) {
@@ -248,8 +282,7 @@ void *compute_marginal_gain( void* ptr ) {
 
 void write_imm_input( string imm_dir, 
 		      igraph_t& G,
-		      vector< myreal >& edge_weights,
-		      bool is_directed = false ) {
+		      vector< myreal >& edge_weights ) {
   string s_attr = imm_dir + "attribute.txt";
   myint n = igraph_vcount( &G );
   myint m = igraph_ecount( &G );
@@ -264,9 +297,33 @@ void write_imm_input( string imm_dir,
   for (myint i = 0; i < m; ++i ) {
     igraph_edge( &G, i, &from, &to );
     of_gr << from << ' ' << to << ' ' << edge_weights[ i ] << endl;
-    if (!is_directed)
-      of_gr << to << ' ' << from << ' ' << edge_weights[ i ] << endl;
+    of_gr << to << ' ' << from << ' ' << edge_weights[ i ] << endl;
   }
+}
+
+void write_weighted_graph(
+			  string outfname, 
+		      igraph_t& G,
+		      vector< myreal >& edge_weights ) {
+  igraph_simplify( &G, true, true, 0 ); //make sure we don't have a multigraph
+
+  ofstream ofile( outfname.c_str() );
+  myint n = igraph_vcount( &G );
+  myint m = igraph_ecount( &G );
+
+  myint from, to;
+  for (myint i = 0; i < m; ++i ) {
+    igraph_edge( &G, i, &from, &to );
+    ofile << from << ' ' << to << endl;
+  }
+
+  ofile.close();
+  outfname += "_w";
+  ofstream ofile2( outfname.c_str() );
+  for (myint i = 0; i < m; ++i) {
+    ofile2 << edge_weights[i] << ' ';
+  }
+  ofile2.close();
 }
 
 bool bin_search( InfGraph& g, Argument& arg, int first, int last, int& res, igraph_t& base_graph, vector< myreal >& IC, vector< myreal >& NP ) {
@@ -343,7 +400,6 @@ void run_imm( string in_dir,
 }
 
 void read_params(
-		 string& oracle_file,
 		 string& which_estimator,
 		 double& delta,
 		 myint& N,
@@ -385,7 +441,6 @@ void read_params(
   is >> N;
   is >> delta;
   is >> which_estimator;
-  is >> oracle_file;
 }
 
 myreal actual_influence(
@@ -395,29 +450,38 @@ myreal actual_influence(
 			vector< myreal >& NP,
 			unsigned L ) {
   myreal activated = 0.0;
-  vector< myreal > thread_est( nthreads, 0.0 );
-  
-  thread* sample_threads = new thread[ nthreads ];
-  unsigned Lprime =  (unsigned)( L / ((double) nthreads) ) + 1;
-  for (unsigned j = 0; j < nthreads; ++j) {
-    sample_threads[ j ] =
-      thread(
-	     ind_sample_thread,
-	     ref( seed_set ),
-	     ref( thread_est[ j ] ),
-	     Lprime
-	     );
-	  
+
+  for (unsigned i = 0; i < L; ++i) {
+    if (i % 1 == 0) {
+      cout << "\r                                     \r"
+    	   << ((myreal) i )/ L * 100 
+    	//	   << i
+    	   << "\% done";
+      cout.flush();
+    }
+
+    igraph_t G_i;
+    sample_independent_cascade( base_graph, IC, G_i );
+    vector< myint > ext_act;
+    sample_external_influence( base_graph, NP, ext_act );
+    
+    vector< myint > v_reach;
+    activated += forwardBFS( &G_i,
+		ext_act,
+		seed_set,
+		v_reach,
+			     igraph_vcount( &G_i ) );
+		//max_dist );
+		
+    //    activated += v_reach.size();
+    //    cout << ext_act.size() + seed_set.size() << ' ' << v_reach.size() << endl;
+
+    igraph_destroy( &G_i );
   }
 
-  for (unsigned j = 0; j < nthreads; ++j) {
-    sample_threads[j].join();
-    activated += thread_est[ j ];
-  }
+  cout << "\r                              \r100% done" << endl;
 
-  delete [] sample_threads;
-  
-  return activated / (nthreads * Lprime );
+  return activated / L;
 }
 
 
@@ -438,8 +502,7 @@ int main(int argc, char** argv) {
 	 << " <max_dist>"
 	 << " <N_trials>"
 	 << " <delta> * 100"
-	 << " <which_estimator>"
-	 << " <oracle_file>" << endl;
+	 << " <which_estimator>\n";
     return 1;
   }
 
@@ -449,7 +512,6 @@ int main(int argc, char** argv) {
   bool bdir;
   double delta;
   string which_estimator;
-  string oracle_file;
 
   if (argc > 2) {
     //read parameters from command line
@@ -459,8 +521,7 @@ int main(int argc, char** argv) {
     }
     iss.str( str_params );
 
-    read_params(oracle_file, 
-		which_estimator,
+    read_params( which_estimator,
 		delta, 
 		N, //number of trials 
 		max_dist,
@@ -479,8 +540,7 @@ int main(int argc, char** argv) {
       string str_ifile( argv[1] );
       ifile.open( str_ifile.c_str() );
 
-      read_params( oracle_file, 
-		  which_estimator,
+      read_params( which_estimator,
 		   delta,
 		   N,
 		   max_dist,
@@ -518,11 +578,20 @@ int main(int argc, char** argv) {
 
     } else {
 
-      vector< vector < double > > wA; //unused
-      read_weighted_graph( base_graph, graph_filename, wA,
-			   IC_weights, n, bdir );
+      //ifstream ifile( graph_filename.c_str());
+      FILE* fp;
+      fp = fopen( graph_filename.c_str(), "r" );
+      //if the graph is undirected
+     
+      igraph_read_graph_edgelist( &base_graph, fp, 0, bdir ); 
+      fclose( fp );
+
+      //
+      //      remove_isolated_vertices( &base_graph );
+      //      vector< vector < double > > wA; //unused
+      //      read_weighted_graph( base_graph, ifile, wA,
+      //			   IC_weights, n );
 			   
-      //read node probs
     }
   }
 
@@ -588,92 +657,69 @@ int main(int argc, char** argv) {
   double avg_t_total = 0.0;
   double avg_act = 0.0;
   double avg_offset = 0.0;
-  double avg_t_oracle_wall = 0.0;
-  double avg_t_total_wall = 0.0;
-  double avg_t_alg_wall = 0.0;
+
   for (unsigned nsim = 0; nsim < N; ++nsim) {
 
-    //    cout << "Constructing the IC model..." << endl;
+    cout << "Constructing the IC model..." << endl;
 
-    //    construct_independent_cascade( base_graph, IC_weights, int_maxprob );
+    construct_independent_cascade( base_graph, IC_weights, int_maxprob );
+
+    write_weighted_graph( output_filename, base_graph, IC_weights );
+
+    exit( 0 );
 
     //this is a simple model of external influence
     cout << "Constructing external influence..." << endl;
     construct_external_influence( base_graph, node_probs, ext_maxprob );
 
-    clock_t t_start, t_finish;
-    chrono::high_resolution_clock::time_point wall_start;
-    chrono::high_resolution_clock::time_point wall_finish;
-    myreal t_oracle;
-    myreal t_wall_oracle;
+    cerr << "Computing oracles online...\n";
 
+    //  vector< igraph_t* > v_graphs; // the ell graphs
+    
+    // double offset = construct_reachability_instance( 
+    //                                  base_graph, 
+    //       			   v_graphs, 
+    //       			   IC_weights,
+    //       			   node_probs,
+    //       			   ell );
+    
+    clock_t t_start = clock();
+    //create the oracles
+
+    my_oracles.n = n;
+    my_oracles.ell = ell;
+    my_oracles.k = k_cohen;
+    my_oracles.or_max_dist = max_dist;
+    my_oracles.compute_uniform_oracles_online_init();
+      
+    myint ell_tmp = ((double) ell) / nthreads;
     if (which_estimator != "naive" &&
 	which_estimator != "imm" ) {      
-      if (!file_exists( oracle_file ) ) {
-	cerr << "Computing oracles online...\n";
-
-	//compute the oracles
-	t_start = clock();
-	wall_start = chrono::high_resolution_clock::now();
-	//create the oracles
-	my_oracles.n = n;
-	my_oracles.ell = ell;
-	my_oracles.k = k_cohen;
-	my_oracles.or_max_dist = max_dist;
-	my_oracles.compute_uniform_oracles_online_init();
-    
-	myint ell_tmp = ((double) ell) / nthreads;
-     
-	pthread_t* mythreads = new pthread_t[ nthreads ];
-	for (unsigned i = 0; i < nthreads; ++i) {
-	  pthread_create( &( mythreads[i] ), NULL, compute_oracles_online, &ell_tmp );
-	
-	}
-	
-	for (unsigned i = 0; i < nthreads; ++i) {
-	  pthread_join( mythreads[i] , NULL );
-	
-	}
-	
-	delete [] mythreads;
       
-	t_finish = clock();
-	wall_finish = chrono::high_resolution_clock::now();
-	t_oracle = myreal ( t_finish - t_start ) / CLOCKS_PER_SEC;
-	t_wall_oracle = std::chrono::duration< double > ( chrono::duration_cast< chrono::seconds > ( wall_finish - wall_start ) ).count();
-	my_oracles.t_oracles = t_oracle;
-	my_oracles.t_oracles_wall = t_wall_oracle;
-	cout << "Writing the oracles to file: " << oracle_file << endl;
-	ofstream of_oracle( oracle_file.c_str() );
-	my_oracles.write_oracles( of_oracle );
-	of_oracle.close();
-	cout << "...done." << endl;
-      } else {
-	//read the oracles
-	cout << "Reading oracles from file: " << oracle_file << endl;
-	ifstream if_oracle( oracle_file.c_str() );
-	my_oracles.read_oracles( if_oracle );
-	cout << my_oracles.k << ' ' << my_oracles.offset << endl;
-	cout << "...done" << endl;
-	if_oracle.close();
-	t_oracle = my_oracles.t_oracles;
-	t_wall_oracle = my_oracles.t_oracles_wall;
-
-      
+      pthread_t* mythreads = new pthread_t[ nthreads ];
+      for (unsigned i = 0; i < nthreads; ++i) {
+	pthread_create( &( mythreads[i] ), NULL, compute_oracles_online, &ell_tmp );
+	
       }
-    
-      avg_t_oracle += t_oracle;
-      avg_t_oracle_wall += std::chrono::duration< double >( t_wall_oracle ).count();
-    }
-    string imm_dir = "./tmp_imm/";
-    if (which_estimator == "imm") {
-      write_imm_input( imm_dir, base_graph, IC_weights, bdir );
-    }
 
-    //run the chosen algorithm
-    wall_start = chrono::high_resolution_clock::now();
+      for (unsigned i = 0; i < nthreads; ++i) {
+	pthread_join( mythreads[i] , NULL );
+	
+      }
+      
+      delete [] mythreads;
+    }
+    clock_t t_finish = clock();
+    myreal t_oracle = myreal ( t_finish - t_start ) / CLOCKS_PER_SEC;
+    avg_t_oracle += t_oracle;
+
+    //run the bicriteria alg.
     t_start = clock();
     seed_set.clear();
+    string imm_dir = "./tmp_imm/";
+    if (which_estimator == "imm") {
+      write_imm_input( imm_dir, base_graph, IC_weights );
+    }
 
     myreal offset = my_oracles.offset / my_oracles.ell;
     avg_offset += offset;
@@ -683,7 +729,7 @@ int main(int argc, char** argv) {
 		  seed_set, alpha, 
 		  base_graph, 
 		  IC_weights,  node_probs,
-		  false );
+		  true );
     } else {
       if (which_estimator == "complex") {
 	bicriteria_better_est( my_oracles, n, T, offset,
@@ -717,21 +763,16 @@ int main(int argc, char** argv) {
     }
 
     t_finish = clock();
-    wall_finish = chrono::high_resolution_clock::now();
     myreal t_bicriteria = myreal (t_finish - t_start) / CLOCKS_PER_SEC;
-    myreal t_alg_wall = chrono::duration< double > ( chrono::duration_cast< chrono::seconds > ( wall_finish - wall_start ) ).count();
     avg_t_bicriteria += t_bicriteria;
-    avg_t_alg_wall += t_alg_wall;
     myreal t_total = t_oracle + t_bicriteria;
-    myreal t_total_wall = t_wall_oracle + t_alg_wall;
     avg_t_total += t_total;
-    avg_t_total_wall += t_total_wall;
+
     
     cout << "Size of seed set: " << seed_set.size() << endl;
     avg_seed_set_size += seed_set.size();
 
     cout << "Finished in: " << t_total << " seconds" << endl;
-    cout << "Wall clock: " << t_total_wall << " seconds" << endl;
 
     //compute "actual" influence of seed set
     cout << "Estimating influence of seed set by Monte Carlo..." << endl;
@@ -744,9 +785,6 @@ int main(int argc, char** argv) {
   avg_t_bicriteria /= N;
   avg_t_oracle /= N;
   avg_t_total /= N;
-  avg_t_oracle_wall /= N;
-  avg_t_total_wall /= N;
-  avg_t_alg_wall /= N;
   avg_act /= N;
   avg_offset /= N;
 
@@ -774,11 +812,7 @@ int main(int argc, char** argv) {
 	<< (T - avg_act) / epsilon << ' '
 	<< max_dist << ' '
 	<< delta << ' '
-	<< which_estimator << ' '
-	<< avg_t_alg_wall << ' '
-	<< avg_t_oracle_wall << ' '
-	<< avg_t_total_wall << endl;
-
+	<< which_estimator << endl;
 
   ofile.close();
   return 0;
@@ -843,8 +877,7 @@ void bicriteria_be2
   }
 
   vector< bool > b_valid;
-  oracles.imp_est.mem.clear();
-  oracles.imp_est.estimate = 0.0;
+
   while (bcont ) {
     ++n_iter;
     //select the node with the max. marginal gain
@@ -870,22 +903,8 @@ void bicriteria_be2
     est_infl = offset + oracles.imp_est.estimate / oracles.ell;
 
     cerr << est_infl << ' ' << curr_tau << endl;
+    bcont = (est_infl < T);
 
-    if (stop_criterion) {
-      if ( est_infl >= T ) {
-	unsigned nskip = 1;
-	if ( n_iter % nskip == 0  ) {
-	  myreal act_infl = actual_influence( seeds, base_graph, IC, NP, 10 );
-	  cout << act_infl << endl;
-	  if ( act_infl > T ) {
-	    bcont = false;
-	  }
-	}
-      }
-    } else {
-	bcont = (est_infl < T);
-    }
-  
   }
 }
 
@@ -923,7 +942,7 @@ void bicriteria( influence_oracles& oracles,
 
     max_marg = 0.0;
     //    curr_tau = oracles.estimate_reachability_sketch( sketch );
-    curr_tau = oracles.estimate_reachability_uniform_sketch( sketch );
+        curr_tau = oracles.estimate_reachability_uniform_sketch( sketch );
     for (myint u = 0; u < n; ++u) {
       //tmp_sketch = merge( sketch, sketch_u )
       my_merge( sketch, oracles.uniform_global_sketches[ u ], tmp_sketch, oracles.k );
@@ -952,8 +971,7 @@ void bicriteria( influence_oracles& oracles,
       //	break;
       //    }
       if ( est_infl > T ) {
-	unsigned nskip = 1;
-	if ( n_iter % nskip == 0  ) {
+	if ( n_iter % 10 == 0  ) {
 	  myreal act_infl = actual_influence( seeds, base_graph, IC, NP, 10 );
 	  cout << act_infl << endl;
 	  if ( act_infl > T ) {
@@ -1229,41 +1247,6 @@ void my_merge( vector< myreal >& sk1, vector< myreal >& sk2,
 }
 
 
-void ind_sample_thread( vector< myint >& ss, double& myest, unsigned L ) {
-  igraph_t& G = base_graph;
-  vector< myreal >& IC = IC_weights;
-  vector< myreal >& NP = node_probs;
-  //  influence_oracles& O = my_oracles;
-
-  myest = 0.0;
-  for (unsigned i = 0; i < L; ++i) {
-    if (i % 10 == 0) {
-      cout << "\r                                     \r"
-    	   << ((myreal) i )/ L * 100 
-    	//	   << i
-    	   << "\% done";
-      cout.flush();
-    }
-
-    igraph_t G_i;
-    sample_independent_cascade( base_graph, IC, G_i );
-    vector< myint > ext_act;
-    sample_external_influence( base_graph, NP, ext_act );
-    
-    vector< myint > v_reach;
-    myest += forwardBFS( &G_i,
-		ext_act,
-		ss,
-		v_reach,
-			 igraph_vcount( &G_i ) );
-		//max_dist );
-		
-    igraph_destroy( &G_i );
-  }
-
-  cout << "\r                              \r100% done" << endl;
-
-}
 
 //takes place of 'construct_reachability_instance'
 //does not store any of the reachability graphs
