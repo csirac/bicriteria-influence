@@ -610,7 +610,7 @@ int main(int argc, char** argv) {
     if (which_estimator != "naive" &&
 	which_estimator != "imm" ) {      
       if (!file_exists( oracle_file ) ) {
-	cerr << "Computing oracles online...\n";
+	cout << "Computing oracles online..." << endl;
 
 	//compute the oracles
 	t_start = clock();
@@ -822,7 +822,7 @@ void bicriteria_be2
 		 vector< myreal >& IC,
 		 vector< myreal >& NP,
 		 bool stop_criterion = false ) {
-  cerr << "offset = " << offset << endl;
+  cout << "offset = " << offset << endl;
   seeds.clear();
 
   myreal est_infl = offset;
@@ -869,7 +869,7 @@ void bicriteria_be2
     
     est_infl = offset + oracles.imp_est.estimate / oracles.ell;
 
-    cerr << est_infl << ' ' << curr_tau << endl;
+    cout << est_infl << ' ' << curr_tau << endl;
 
     if (stop_criterion) {
       if ( est_infl >= T ) {
@@ -902,7 +902,7 @@ void bicriteria( influence_oracles& oracles,
 		 vector< myreal >& NP,
 		 bool stop_criterion = false ) {
 
-  cerr << "offset = " << offset << endl;
+  cout << "offset = " << offset << endl;
 
   //  vector< myint > sketch;
   vector< myreal > sketch;
@@ -942,8 +942,8 @@ void bicriteria( influence_oracles& oracles,
 
     est_infl = offset + curr_tau + max_marg;// + seeds.size();
 
-    cerr << est_infl << ' ' << curr_tau << ' ' <<  max_marg << ' ' << next_node << endl;
-    cerr << "perm rank " << sketch.back() << endl;
+    cout << est_infl << ' ' << curr_tau << ' ' <<  max_marg << ' ' << next_node << endl;
+    cout << "perm rank " << sketch.back() << endl;
 
     if (stop_criterion) {
       //      if (max_marg < 2.0) { //alpha * T) {
@@ -1039,7 +1039,7 @@ void bicriteria_better_est( influence_oracles& oracles,
 
     est_infl = offset + curr_tau + max_marg;// + seeds.size();
 
-    cerr << est_infl << ' ' << curr_tau << ' ' <<  max_marg << ' ' << next_node << endl;
+    cout << est_infl << ' ' << curr_tau << ' ' <<  max_marg << ' ' << next_node << endl;
 
     if (stop_criterion) {
       if (max_marg < 2.0) { //alpha * T) {
@@ -1356,10 +1356,10 @@ myreal construct_reachability_instance( igraph_t& G,
   myreal offset = 0.0;
   for (myint i = 0; i < ell; ++i) {
     if (i % 1 == 0) {
-      cerr << "\r                                     \r"
+      cout << "\r                                     \r"
 	   << ((myreal) i )/ ell * 100 
 	//	   << i
-	   << "\% done";
+	   << "\% done"; cout.flush();
     }
 
     igraph_t* G_i = new igraph_t; //want a new address in memory each iteration    
@@ -1435,11 +1435,11 @@ int test_estimation()
 
   influence_oracles my_oracles( vgraphs, ell, (myint) 10, n );
 
-  cerr << "computing oracles...\n";
+  cout << "computing oracles..." << endl;
 
   my_oracles.compute_oracles();
 
-  cerr << "done" << endl;
+  cout << "done" << endl;
 
   cout << "avg reachability and estimates: ";
   for (myint i = 0; i < n; ++i) {
